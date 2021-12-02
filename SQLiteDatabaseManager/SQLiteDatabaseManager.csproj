@@ -18,4 +18,8 @@
     <Folder Include="Infra\" />
   </ItemGroup>
 
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="copy $(TargetPath) $(ProjectDir)..\..\_dlls" />
+  </Target>
+
 </Project>

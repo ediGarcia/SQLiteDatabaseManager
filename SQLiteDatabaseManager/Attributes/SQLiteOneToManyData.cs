@@ -19,7 +19,7 @@ namespace SQLiteDatabaseManager.Attributes
 		public SQLiteOneToManyData(string name, string targetColumn) : base(name)
 		{
 			ExceptionHelper.CheckNull(targetColumn, "The target column name");
-			TargetColumn = targetColumn;
+			TargetColumn = targetColumn.ToUpper();
 		}
 	}
 }

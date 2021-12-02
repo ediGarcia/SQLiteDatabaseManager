@@ -48,7 +48,7 @@ namespace SQLiteDatabaseManager.Attributes
 		/// <summary>
 		/// Defines the current column behaviour for the INSERT and UPDATE methods.
 		/// </summary>
-		public UpdateBehaviour UpdateBehaviour { get; set; }
+		public UpdateBehaviour UpdateBehaviour { get; set; } = UpdateBehaviour.AllowNull;
 
 		#endregion
 

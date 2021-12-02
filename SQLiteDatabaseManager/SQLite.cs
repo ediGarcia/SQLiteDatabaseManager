@@ -110,8 +110,9 @@ namespace SQLiteDatabaseManager
 		/// <typeparam name="T"></typeparam>
 		/// <param name="data">Data to be inserted into the database.</param>
 		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public void Insert<T>(T data, bool updateLocalData = true) =>
-			SQLiteHelper.Insert(Path, data, updateLocalData);
+		/// <param name="conflictAction">Sets the action taken when a UNIQUE constraint error is thrown.</param>
+		public void Insert<T>(T data, bool updateLocalData = true, ConflictAction conflictAction = ConflictAction.ThrowError) =>
+			SQLiteHelper.Insert(Path, data, updateLocalData, conflictAction);
 		#endregion
 
 		#region Insert(List<T>, [bool])
@@ -121,34 +122,9 @@ namespace SQLiteDatabaseManager
 		/// <typeparam name="T"></typeparam>
 		/// <param name="data">Data to be inserted into the database.</param>
 		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public void Insert<T>(List<T> data, bool updateLocalData = true) =>
-			SQLiteHelper.Insert(Path, data, updateLocalData);
-		#endregion
-
-		#endregion
-
-		#region InsertOrUpdate
-
-		#region InsertOrUpdate(T, [bool])
-		/// <summary>
-		/// Insert or updates the specified data in the database based on its primary keys.
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="data">Data to be inserted or updated in the database.</param>
-		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public void InsertOrUpdate<T>(T data, bool updateLocalData = true) =>
-			SQLiteHelper.InsertOrUpdate(Path, data, updateLocalData);
-		#endregion
-
-		#region InsertOrUpdate(List<T>, [bool])
-		/// <summary>
-		/// Insert or updates the specified data in the database based on its primary keys.
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="data">Data to be inserted or updated in the database.</param>
-		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public void InsertOrUpdate<T>(List<T> data, bool updateLocalData = true) =>
-			SQLiteHelper.InsertOrUpdate(Path, data, updateLocalData);
+		/// <param name="conflictAction">Sets the action taken when a UNIQUE constraint error is thrown.</param>
+		public void Insert<T>(List<T> data, bool updateLocalData = true, ConflictAction conflictAction = ConflictAction.ThrowError) =>
+			SQLiteHelper.Insert(Path, data, updateLocalData, conflictAction);
 		#endregion
 
 		#endregion

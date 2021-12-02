@@ -17,6 +17,8 @@ namespace SQLiteDatabaseManager
 	// ReSharper disable once InconsistentNaming
 	public static class SQLiteHelper
 	{
+		private static readonly string WhereClauseStarter = " WHERE 1 = 1";
+
 		#region Public methods
 
 		#region CreateDatabase
@@ -60,16 +62,14 @@ namespace SQLiteDatabaseManager
 			Type targetType = typeof(T);
 			SQLiteTableAttribute tableAttribute = GetTableAttribute(targetType);
 
-			PropertyInfo[] properties = targetType.GetProperties();
-
 			StringBuilder command = new("DELETE FROM ");
 			command.Append(tableAttribute.Table).AppendIfNotNullOrWhiteSpace(tableAttribute.Alias, " AS ")
-				.Append(" WHERE 1 = 1").AppendIfNotNullOrWhiteSpace(tableAttribute.Where, " AND (", ")");
+				.Append(WhereClauseStarter).AppendIfNotNullOrWhiteSpace(tableAttribute.Where, " AND (", ")");
 
 			int propertyCount = 0;
 
 			#region Get properties' data (columns and foreign keys).
-			properties.ForEach(propInfo =>
+			targetType.GetProperties().ForEach(propInfo =>
 			{
 				SQLiteField field = GetSQLiteFieldAttribute(propInfo);
 
@@ -393,17 +393,15 @@ namespace SQLiteDatabaseManager
 			Type targetType = typeof(T);
 			SQLiteTableAttribute tableAttribute = GetTableAttribute(targetType);
 
-			PropertyInfo[] properties = targetType.GetProperties();
-
 			StringBuilder command = new("SELECT COUNT(*) FROM ");
 			command.Append(tableAttribute.Table).AppendIfNotNullOrWhiteSpace(tableAttribute.Alias, " AS ")
-				.Append(" WHERE 1 = 1").AppendIfNotNullOrWhiteSpace(tableAttribute.Where, " AND (", ")")
+				.Append(WhereClauseStarter).AppendIfNotNullOrWhiteSpace(tableAttribute.Where, " AND (", ")")
 				.AppendIfNotNullOrWhiteSpace(sqlFilter, " AND (", ")");
 
 			int propertyCount = 0;
 
 			#region Get properties' data (columns and foreign keys).
-			properties.ForEach(propInfo =>
+			targetType.GetProperties().ForEach(propInfo =>
 			{
 				SQLiteField field = GetSQLiteFieldAttribute(propInfo);
 
@@ -441,23 +439,7 @@ namespace SQLiteDatabaseManager
 				return false;
 
 			if (!checkOnlyPrimary)
-			{
-				#region Get JOIN clause data.
-				(Attribute.GetCustomAttributes(targetType, typeof(SQLiteJoinAttribute)) as SQLiteJoinAttribute[])
-					.ForEach(join =>
-					{
-						string joinCommand = join.Mode switch
-						{
-							JoinMode.Cross => " CROSS JOIN",
-							JoinMode.Outer => " OUTER JOIN",
-							_ => " INNER JOIN"
-						};
-
-						command.Append(joinCommand, " ", join.Table).AppendIfNotNullOrWhiteSpace(join.Alias, " AS ")
-							.Append(" ON ", join.Constraint);
-					});
-				#endregion
-			}
+				GenerateJoin<T>(command);
 
 			return (long)ExecuteQuery(connection, command.ToString()).Rows[0][0] > 0;
 		}
@@ -531,7 +513,7 @@ namespace SQLiteDatabaseManager
 
 		#region Insert
 
-		#region Insert(SQLiteConnection, T, [bool])
+		#region Insert(SQLiteConnection, T, [bool], [ConflictAction])
 		/// <summary>
 		/// Inserts the specified data into the database.
 		/// </summary>
@@ -539,19 +521,24 @@ namespace SQLiteDatabaseManager
 		/// <param name="connection">An open SQLite connection.</param>
 		/// <param name="data">Data to be inserted into the database.</param>
 		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void Insert<T>(SQLiteConnection connection, T data, bool updateLocalData = true)
+		/// <param name="conflictAction">Sets the action taken when a UNIQUE constraint error is thrown.</param>
+		public static void Insert<T>(SQLiteConnection connection, T data, bool updateLocalData = true, ConflictAction conflictAction = ConflictAction.ThrowError)
 		{
 			if (data is null)
 				throw new ArgumentNullException(nameof(data), "The target data cannot be null.");
 
 			Type targetType = typeof(T);
-			SQLiteTableAttribute tableAttribute = GetTableAttribute(targetType);
 			PropertyInfo[] targetTypeProperties = targetType.GetProperties();
 			SQLiteCommand command = connection.CreateCommand();
-			StringBuilder commandText = new("INSERT INTO");
+			StringBuilder commandText = new("INSERT ");
 			StringBuilder valuesList = new("VALUES (");
 
-			commandText.Append(" ", tableAttribute.Table, " (");
+			if (conflictAction == ConflictAction.Ignore)
+				commandText.Append(" OR IGNORE ");
+			else if (conflictAction == ConflictAction.Replace)
+				commandText.Append(" OR REPLACE ");
+
+			commandText.Append("INTO ", GetTableAttribute(targetType).Table, " (");
 
 			#region Get properties' data.
 			targetTypeProperties.ForEach(propInfo =>
@@ -611,7 +598,7 @@ namespace SQLiteDatabaseManager
 		}
 		#endregion
 
-		#region Insert(SQLiteConnection, List<T>, [bool])
+		#region Insert(SQLiteConnection, List<T>, [bool], [ConflictAction])
 		/// <summary>
 		/// Inserts the specified data into the database.
 		/// </summary>
@@ -619,11 +606,12 @@ namespace SQLiteDatabaseManager
 		/// <param name="connection">An open SQLite connection.</param>
 		/// <param name="data">Data to be inserted into the database.</param>
 		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void Insert<T>(SQLiteConnection connection, List<T> data, bool updateLocalData = true) =>
-			data?.ForEach(_ => Insert(connection, _, updateLocalData));
+		/// <param name="conflictAction">Sets the action taken when a UNIQUE constraint error is thrown.</param>
+		public static void Insert<T>(SQLiteConnection connection, List<T> data, bool updateLocalData = true, ConflictAction conflictAction = ConflictAction.ThrowError) =>
+			data?.ForEach(_ => Insert(connection, _, updateLocalData, conflictAction));
 		#endregion
 
-		#region Insert(string, T, [bool])
+		#region Insert(string, T, [bool], [ConflictAction])
 		/// <summary>
 		/// Inserts the specified data into the database.
 		/// </summary>
@@ -631,11 +619,12 @@ namespace SQLiteDatabaseManager
 		/// <param name="path">The SQLite database file path.</param>
 		/// <param name="data">Data to be inserted into the database.</param>
 		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void Insert<T>(string path, T data, bool updateLocalData = true) =>
-			Insert(OpenConnection(path), data, updateLocalData);
+		/// <param name="conflictAction">Sets the action taken when a UNIQUE constraint error is thrown.</param>
+		public static void Insert<T>(string path, T data, bool updateLocalData = true, ConflictAction conflictAction = ConflictAction.ThrowError) =>
+			Insert(OpenConnection(path), data, updateLocalData, conflictAction);
 		#endregion
 
-		#region Insert(string, List<T>, [bool])
+		#region Insert(string, List<T>, [bool], [ConflictAction])
 		/// <summary>
 		/// Inserts the specified data into the database.
 		/// </summary>
@@ -643,75 +632,12 @@ namespace SQLiteDatabaseManager
 		/// <param name="path">The SQLite database file path.</param>
 		/// <param name="data">Data to be inserted into the database.</param>
 		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void Insert<T>(string path, List<T> data, bool updateLocalData = true)
+		/// <param name="conflictAction">Sets the action taken when a UNIQUE constraint error is thrown.</param>
+		public static void Insert<T>(string path, List<T> data, bool updateLocalData = true, ConflictAction conflictAction = ConflictAction.ThrowError)
 		{
 			SQLiteConnection connection = OpenConnection(path);
-			data?.ForEach(_ => Insert(connection, _, updateLocalData));
+			data?.ForEach(_ => Insert(connection, _, updateLocalData, conflictAction));
 		}
-		#endregion
-
-		#endregion
-
-		#region InsertOrUpdate
-
-		#region InsertOrUpdate(SQLiteConnection, T, [bool])
-		/// <summary>
-		/// Insert or updates the specified data in the database based on its primary keys.
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="connection">An open SQLite connection.</param>
-		/// <param name="data">Data to be inserted or updated in the database.</param>
-		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void InsertOrUpdate<T>(SQLiteConnection connection, T data, bool updateLocalData = true)
-		{
-			if (Exists(connection, data))
-				Update(connection, data);
-
-			else
-				Insert(connection, data, updateLocalData);
-		}
-		#endregion
-
-		#region InsertOrUpdate(SQLiteConnection, List<T>, [bool])
-		/// <summary>
-		/// Insert or updates the specified data in the database based on its primary keys.
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="connection">An open SQLite connection.</param>
-		/// <param name="data">Data to be inserted or updated in the database.</param>
-		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void InsertOrUpdate<T>(SQLiteConnection connection, List<T> data, bool updateLocalData = true)
-		{
-			if (Exists(connection, data))
-				Update(connection, data);
-
-			else
-				Insert(connection, data, updateLocalData);
-		}
-		#endregion
-
-		#region InsertOrUpdate(string, T, [bool])
-		/// <summary>
-		/// Insert or updates the specified data in the database based on its primary keys.
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="path">The SQLite database file path.</param>
-		/// <param name="data">Data to be inserted or updated in the database.</param>
-		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void InsertOrUpdate<T>(string path, T data, bool updateLocalData = true) =>
-			InsertOrUpdate(OpenConnection(path), data, updateLocalData);
-		#endregion
-
-		#region InsertOrUpdate(string, List<T>, [bool])
-		/// <summary>
-		/// Insert or updates the specified data in the database based on its primary keys.
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="path">The SQLite database file path.</param>
-		/// <param name="data">Data to be inserted or updated in the database.</param>
-		/// <param name="updateLocalData">Indicates whether the local data should be updated after the INSERT. Useful to update AUTOINCREMENT columns and default values.</param>
-		public static void InsertOrUpdate<T>(string path, List<T> data, bool updateLocalData = true) =>
-			InsertOrUpdate(OpenConnection(path), data, updateLocalData);
 		#endregion
 
 		#endregion
@@ -743,90 +669,86 @@ namespace SQLiteDatabaseManager
 		{
 			Type targetType = typeof(T);
 			SQLiteTableAttribute tableAttribute = GetTableAttribute(targetType);
-
-			PropertyInfo[] properties = targetType.GetProperties();
-
-			if (properties.Length == 0)
-				return new List<T>();
-
-			StringBuilder command = new("SELECT");
-			StringBuilder filterText = new();
 			Dictionary<string, string> columns = new();
 			Dictionary<string, SQLiteForeignKey> foreignKeys = new();
 			Dictionary<string, SQLiteOneToManyData> oneToManyKeys = new();
+			Dictionary<string, SQLiteManyToManyData> manyToManyKeys = new();
+			StringBuilder commandText = new("SELECT");
 
-			#region Get properties' data (columns, foreign keys and one-to-many keys).
-			properties.ForEach(propInfo =>
+			#region Get the properties' data (columns, foreign keys, one-to-many and many-to-many keys).
+			targetType.GetProperties().ForEach(propInfo =>
 			{
 				SQLiteField field = GetSQLiteFieldAttribute(propInfo);
 
-				if (field is SQLiteColumnAttribute column)
+				switch (field)
 				{
-					AddSelectColumn(command, column.TableAlias ?? tableAttribute.Alias, column.Name, column.Alias);
-					AddSelectColumnDictionary(columns, column.Name, propInfo.Name);
+					case SQLiteColumnAttribute column:
+						AddSelectColumn(commandText, column.TableAlias ?? tableAttribute.Alias, column.Name, column.Alias);
+						AddSelectColumnDictionary(columns, column.Name, propInfo.Name);
+						break;
 
-					// Get filter data
-					if (filter is not null && propInfo.GetValue(filter) is { } propValue)
-						filterText.Append(" AND ").AppendIfNotNullOrWhiteSpace(tableAttribute.Alias, suffix: ".").Append(column.Name, " = '", propValue, "'");
+					case SQLiteCustomFieldAttribute customField:
+						commandText.Append(" ", customField.FieldData, " AS ", customField.Name, ",");
+						columns.Add(customField.Name, propInfo.Name);
+						break;
+
+					case SQLiteForeignKey foreignKey:
+						if (!columns.ContainsKey(foreignKey.Name))
+						{
+							AddSelectColumn(commandText, tableAttribute.Alias, foreignKey.Name, null);
+							AddSelectColumnDictionary(columns, foreignKey.Name, null);
+						}
+
+						foreignKeys.Add(propInfo.Name, foreignKey);
+						break;
+
+					case SQLiteOneToManyData oneToMany:
+						oneToManyKeys.Add(propInfo.Name, oneToMany);
+						break;
+
+					case SQLiteManyToManyData manyToMany:
+						manyToManyKeys.Add(propInfo.Name, manyToMany);
+						break;
 				}
-
-				else if (field is SQLiteCustomFieldAttribute customField)
-				{
-					command.Append(" ", customField.FieldData, " AS ", customField.Name, ",");
-					columns.Add(customField.Name, propInfo.Name);
-				}
-
-				else if (field is SQLiteForeignKey foreignKey)
-				{
-					if (!columns.ContainsKey(foreignKey.Name))
-					{
-						AddSelectColumn(command, tableAttribute.Alias, foreignKey.Name, null);
-						AddSelectColumnDictionary(columns, foreignKey.Name, null);
-					}
-
-					foreignKeys.Add(propInfo.Name, foreignKey);
-				}
-
-				else if (field is SQLiteOneToManyData oneToMany)
-					oneToManyKeys.Add(propInfo.Name, oneToMany);
 			});
 			#endregion
 
+			// If no properties contains the necessary attributes, then there is nothing to return.
 			if (columns.Count == 0)
 				return new List<T>();
 
+			#region Gets data for the command text (FROM, WHERE, JOIN and LIMIT).
+
 			// Source table (FROM clause).
-			command.Length -= 1;
-			command.Append(" FROM ", tableAttribute.Table).AppendIfNotNullOrWhiteSpace(tableAttribute.Alias, " AS ");
+			commandText.Length -= 1;
+			commandText.Append(" FROM ", tableAttribute.Table).AppendIfNotNullOrWhiteSpace(tableAttribute.Alias, " AS ");
 
-			#region Get JOIN clause data.
-			(Attribute.GetCustomAttributes(targetType, typeof(SQLiteJoinAttribute)) as SQLiteJoinAttribute[]).ForEach(join =>
-				{
-					string joinCommand = join.Mode switch
-					{
-						JoinMode.Cross => "CROSS JOIN",
-						JoinMode.Outer => "OUTER JOIN",
-						_ => "INNER JOIN"
-					};
-
-					command.Append(" ", joinCommand, " ", join.Table).AppendIfNotNullOrWhiteSpace(join.Alias, " AS ")
-						.Append(" ON ", join.Constraint);
-				});
-			#endregion
+			GenerateJoin<T>(commandText); // JOIN clause.
 
 			// Conditions (WHERE clause).
-			command.Append(" WHERE 1 = 1").AppendIfNotNullOrWhiteSpace(tableAttribute.Where, " AND (", ")")
-				.AppendIfNotNullOrWhiteSpace(sqlFilter, " AND (", ")")
-				.AppendIfNotNullOrWhiteSpace(filterText);
+			commandText.Append(WhereClauseStarter).AppendIfNotNullOrWhiteSpace(tableAttribute.Where, " AND (", ")")
+				.AppendIfNotNullOrWhiteSpace(sqlFilter, " AND (", ")");
 
-			// LIMIT data.
+			if (filter is not null)
+				typeof(T).GetProperties().ToList().ForEach(propInfo =>
+				{
+					if (GetSQLiteFieldAttribute(propInfo) is SQLiteColumnAttribute column &&
+						propInfo.GetValue(filter) is { } propValue)
+						commandText.Append(" AND ").AppendIfNotNullOrWhiteSpace(tableAttribute.Alias, suffix: ".")
+							.Append(column.Name, " = '", propValue, "'");
+				});
+
+			// LIMIT.
 			if (limit is not null)
-				command.Append(" LIMIT ", limit);
+				commandText.Append(" LIMIT ", limit);
+
+			#endregion
 
 			#region Run queries.
 			// Run main query.
-			DataTable queryResult = ExecuteQuery(connection, command.ToString());
+			DataTable queryResult = ExecuteQuery(connection, commandText.ToString());
 
+			// Makes sure that every column name is upper case.
 			foreach (DataColumn column in queryResult.Columns)
 				column.ColumnName = column.ColumnName.ToUpper();
 
@@ -854,8 +776,8 @@ namespace SQLiteDatabaseManager
 				{
 					PropertyInfo propInfo = targetType.GetProperty(propertyName);
 					Type propType = propInfo.PropertyType.GetGenericArguments() is { Length: > 0 } listTypes ? listTypes[0] : propInfo.PropertyType;
-					SQLiteOneToManyData oneToManyKey = oneToManyKeys[propertyName];
-					string targetColumn = oneToManyKey.TargetColumn;
+					SQLiteOneToManyData oneToManyData = oneToManyKeys[propertyName];
+					string targetColumn = oneToManyData.TargetColumn;
 
 					// Gets the target table alias.
 					if (Attribute.GetCustomAttribute(propType, typeof(SQLiteTableAttribute)) is SQLiteTableAttribute innerListTableAttribute
@@ -868,8 +790,28 @@ namespace SQLiteDatabaseManager
 							.First(_ => _.Name == nameof(Select) && _.GetParameters()[0].ParameterType == typeof(SQLiteConnection))
 							.MakeGenericMethod(propType)
 							.Invoke(null,
-								new object[] { connection, null, $"{targetColumn} = '{queryResult.Rows[i][oneToManyKey.Name]}'", null }));
+								new object[] { connection, null, $"{targetColumn} = '{queryResult.Rows[i][oneToManyData.Name]}'", null }));
 				}
+				#endregion
+
+				#region Gets the many-to-many keys from the database.
+				foreach (string propertyName in manyToManyKeys.Keys)
+				{
+					PropertyInfo propInfo = targetType.GetProperty(propertyName);
+					Type propType = propInfo.PropertyType.GetGenericArguments() is { Length: > 0 } listTypes ? listTypes[0] : propInfo.PropertyType;
+					SQLiteManyToManyData manyToManyData = manyToManyKeys[propertyName];
+					string manyToManyFilter =
+						$"{manyToManyData.TargetRelationColumn} in (SELECT {manyToManyData.TargetRelationColumn} FROM {manyToManyData.RelationTable} WHERE {manyToManyData.SourceRelationColumn} = {queryResult.Rows[i][manyToManyData.SourceRelationColumn]})";
+					
+					propInfo.SetValue(result,
+						typeof(SQLiteHelper)
+							.GetMethods()
+							.First(_ => _.Name == nameof(Select) &&
+							            _.GetParameters()[0].ParameterType == typeof(SQLiteConnection))
+							.MakeGenericMethod(propType)
+							.Invoke(null,
+								new object[] { connection, null, manyToManyFilter, null }));
+				} 
 				#endregion
 			}
 			#endregion
@@ -943,7 +885,7 @@ namespace SQLiteDatabaseManager
 			PropertyInfo[] targetTypeProperties = targetType.GetProperties();
 			SQLiteCommand command = connection.CreateCommand();
 			StringBuilder commandText = new("UPDATE");
-			StringBuilder conditions = new(" WHERE 1 = 1");
+			StringBuilder conditions = new(WhereClauseStarter);
 
 			commandText.Append(" ", tableAttribute.Table, " SET");
 
@@ -986,6 +928,7 @@ namespace SQLiteDatabaseManager
 			});
 			#endregion
 
+			// No data to update.
 			if (command.Parameters.Count == 0)
 				return;
 
@@ -1119,6 +1062,27 @@ namespace SQLiteDatabaseManager
 		}
 		#endregion
 
+		#region GenerateJoin
+		/// <summary>
+		/// Generates the JOIN clause for the specified model type.
+		/// </summary>
+		/// <typeparam name="T">Model type from which the join data will be extracted.</typeparam>
+		/// <param name="commandText">SQL command string.</param>
+		private static void GenerateJoin<T>(StringBuilder commandText) =>
+			(Attribute.GetCustomAttributes(typeof(T), typeof(SQLiteJoinAttribute)) as SQLiteJoinAttribute[]).ForEach(join =>
+			{
+				string joinCommand = join.Mode switch
+				{
+					JoinMode.Cross => "CROSS",
+					JoinMode.Outer => "OUTER",
+					_ => "INNER"
+				};
+
+				commandText.Append(" ", joinCommand, " JOIN ", join.Table).AppendIfNotNullOrWhiteSpace(join.Alias, " AS ")
+					.Append(" ON ", join.Constraint);
+			});
+		#endregion
+
 		#region GetSQLiteFieldAttribute
 		/// <summary>
 		/// Retrieves the <see cref="SQLiteField"/> attribute of the specified property.
@@ -1128,16 +1092,15 @@ namespace SQLiteDatabaseManager
 		// ReSharper disable once InconsistentNaming
 		private static SQLiteField GetSQLiteFieldAttribute(PropertyInfo propInfo)
 		{
-			SQLiteField column = (SQLiteColumnAttribute)propInfo.GetCustomAttribute(typeof(SQLiteColumnAttribute));
-			SQLiteField customField = (SQLiteCustomFieldAttribute)propInfo.GetCustomAttribute(typeof(SQLiteCustomFieldAttribute));
-			SQLiteField foreignKey = (SQLiteForeignKey)propInfo.GetCustomAttribute(typeof(SQLiteForeignKey));
-			SQLiteField oneToManyData = (SQLiteOneToManyData)propInfo.GetCustomAttribute(typeof(SQLiteOneToManyData));
+			SQLiteField field = null;
 
-			if (new[] { column, customField, foreignKey, oneToManyData }.Count(_ => _ is not null) > 1)
-				throw new SQLiteIncompatibleAttributesException(
-					"Only one SQLiteField attribute is allowed for each property.");
+			SetSQLiteFieldAttribute<SQLiteColumnAttribute>(propInfo, ref field);
+			SetSQLiteFieldAttribute<SQLiteCustomFieldAttribute>(propInfo, ref field);
+			SetSQLiteFieldAttribute<SQLiteForeignKey>(propInfo, ref field);
+			SetSQLiteFieldAttribute<SQLiteManyToManyData>(propInfo, ref field);
+			SetSQLiteFieldAttribute<SQLiteOneToManyData>(propInfo, ref field);
 
-			return column ?? customField ?? foreignKey ?? oneToManyData;
+			return field;
 		}
 		#endregion
 
@@ -1173,6 +1136,28 @@ namespace SQLiteDatabaseManager
 				throw new SQLiteMissingAttributeException("The SQLiteTableAttribute attribute is mandatory to run SQLite commands.");
 
 			return tableAttribute;
+		}
+		#endregion
+
+		#region SetSQLiteFieldAttribute
+		/// <summary>
+		/// Gets the <see cref="SQLiteField"/> attribute.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="propInfo"></param>
+		/// <param name="field"></param>
+		// ReSharper disable once InconsistentNaming
+		private static void SetSQLiteFieldAttribute<T>(PropertyInfo propInfo, ref SQLiteField field) where T : SQLiteField
+		{
+			SQLiteField foundAttribute = (T)propInfo.GetCustomAttribute(typeof(T));
+
+			// Only one attribute allowed for each property.
+			if (foundAttribute is not null && field is not null)
+				throw new SQLiteIncompatibleAttributesException(
+					"Only one SQLiteField attribute is allowed for each property.");
+
+			if (foundAttribute is not null)
+				field = foundAttribute;
 		}
 		#endregion
 

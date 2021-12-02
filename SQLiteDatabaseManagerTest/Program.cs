@@ -3,6 +3,10 @@ using SQLiteDatabaseManager.Attributes;
 using SQLiteDatabaseManager.Enums;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Security.Permissions;
+using System.Security.Policy;
 
 namespace SQLiteDatabaseManagerTest
 {
@@ -10,17 +14,65 @@ namespace SQLiteDatabaseManagerTest
 	{
 		static void Main(string[] args)
 		{
-			string path = @"C:\Users\avaz\Downloads\sqliteadmin\chinook.db";
+			string path = @"C:\Users\avaz\Downloads\chinook.db";
 
-			//SQLiteHelper.RealSelect<TableTest>(@"C:\Users\avaz\Downloads\sqliteadmin\chinook.db", new TableTest { Id = 3 }, "CLI_ID_INT IS NOT NULL", 3);
-			//Artist[] artists = SQLiteHelper.Select<Artist>(path).ToArray();
-			//Album[] albums = SQLiteHelper.Select<Album>(@"C:\Users\avaz\Downloads\sqliteadmin\chinook.db").ToArray();
-			//Employee[] employees = SQLiteHelper.Select<Employee>(@"C:\Users\avaz\Downloads\sqliteadmin\chinook.db").ToArray();
-			//Test[] tests = SQLiteHelper.Select<Test>(@"C:\Users\avaz\Downloads\sqliteadmin\demo.db").ToArray();
-			//TestInsert(path);
-			//TestUpdate(path);
-			//var c = TestExists(path);
-			TestDelete(path);
+		//SQLiteHelper.RealSelect<TableTest>(@"C:\Users\avaz\Downloads\sqliteadmin\chinook.db", new TableTest { Id = 3 }, "CLI_ID_INT IS NOT NULL", 3);
+		//Artist[] artists = SQLiteHelper.Select<Artist>(path).ToArray();
+		//Album[] albums = SQLiteHelper.Select<Album>(@"C:\Users\avaz\Downloads\sqliteadmin\chinook.db").ToArray();
+		//Employee[] employees = SQLiteHelper.Select<Employee>(@"C:\Users\avaz\Downloads\sqliteadmin\chinook.db").ToArray();
+		//Test[] tests = SQLiteHelper.Select<Test>(@"C:\Users\avaz\Downloads\sqliteadmin\demo.db").ToArray();
+		//TestInsert(path);
+		//TestUpdate(path);
+		//var c = TestExists(path);
+		//TestDelete(path);
+		Playlist[] playlists = SQLiteHelper.Select<Playlist>(path).ToArray();
+
+
+
+		/*FileInfo arquivoInfo = new FileInfo(@"C:\Users\avaz\Desktop\a.zip");
+		FtpWebRequest request = (FtpWebRequest)WebRequest.Create(new Uri(@"ftp://ftp.rdisoftware.com/capgemini/outgoing/FusionInventory_Capgemini.zip"));
+		request.Method = WebRequestMethods.Ftp.UploadFile;
+		request.Credentials = new NetworkCredential("avaz", "C@pgemini5");
+		request.UseBinary = true;
+		request.ContentLength = arquivoInfo.Length;
+		using (FileStream fs = arquivoInfo.OpenRead())
+		{
+			byte[] buffer = new byte[2048];
+			int bytesSent = 0;
+			int bytes = 0;
+			using (Stream stream = request.GetRequestStream())
+			{
+				while (bytesSent < arquivoInfo.Length)
+				{
+					bytes = fs.Read(buffer, 0, buffer.Length);
+					stream.Write(buffer, 0, bytes);
+					bytesSent += bytes;
+				}
+			}
+		}*/
+
+		/*FtpWebRequest request = (FtpWebRequest)WebRequest.Create(new Uri(@"ftp://ftp.rdisoftware.com/capgemini/outgoing/FusionInventory_Capgemini.zip"));
+		request.Method = WebRequestMethods.Ftp.DownloadFile;
+		request.Credentials = new NetworkCredential("avaz", "C@pgemini5");
+		request.UseBinary = true;
+		using (FtpWebResponse response = (FtpWebResponse)request.GetResponse())
+		{
+			using (Stream rs = response.GetResponseStream())
+			{
+				using (FileStream ws = new FileStream(@"C:\Users\avaz\Desktop\a.zip", FileMode.Create))
+				{
+					byte[] buffer = new byte[2048];
+					int bytesRead = rs.Read(buffer, 0, buffer.Length);
+					while (bytesRead > 0)
+					{
+						ws.Write(buffer, 0, bytesRead);
+						bytesRead = rs.Read(buffer, 0, buffer.Length);
+					}
+				}
+			}
+		}*/
+
+
 			var b = 0;
 		}
 
@@ -265,5 +317,77 @@ namespace SQLiteDatabaseManagerTest
 
 		[SQLiteColumn("Email", MaxLength = 60)]
 		public string Email { get; set; }
+	}
+
+	[SQLiteTable("playlists")]
+	public class Playlist
+	{
+		[SQLiteColumn("PlaylistId", IsPrimaryKey = true)]
+		public long? Id { get; set; }
+
+		[SQLiteColumn("Name", MaxLength = 120)]
+		public string Name { get; set; }
+
+		[SQLiteManyToManyData("playlist_track", "PlaylistId", "PlaylistId", "TrackId")]
+		public List<Track> Tracks { get; set; }
+	}
+
+	[SQLiteTable("genres")]
+	public class Genre
+	{
+		[SQLiteColumn("GenreId", IsPrimaryKey = true)]
+		public long? Id { get; set; }
+
+		[SQLiteColumn("Name", MaxLength = 120)]
+		public string Name { get; set; }
+	}
+
+	[SQLiteTable("media_types")]
+	public class MediaType
+	{
+		[SQLiteColumn("MediaTypeId", IsPrimaryKey = true)]
+		public long? Id { get; set; }
+
+		[SQLiteColumn("Name", MaxLength = 120)]
+		public string Name { get; set; }
+	}
+
+	[SQLiteTable("tracks", Alias = "trk")]
+	[SQLiteJoin("genres", "gen", "trk.genreId = gen.genreId")]
+	[SQLiteJoin("media_types", "mdt", "trk.mediaTypeId = mdt.mediaTypeId")]
+	public class Track
+	{
+		[SQLiteColumn("TrackId", IsPrimaryKey = true)]
+		public long? Id { get; set; }
+
+		[SQLiteColumn("Name", MaxLength = 120)]
+		public string Name { get; set; }
+
+		[SQLiteForeignKey("AlbumId", "AlbumId")]
+		public Album Album { get; set; }
+
+		[SQLiteForeignKey("MediaTypeId", "MediaTypeId")]
+		public MediaType MediaType { get; set; }
+
+		[SQLiteColumn("Name", TableAlias = "mdt")]
+		public string MediaTypeName { get; set; }
+
+		[SQLiteForeignKey("GenreId", "GenreId")]
+		public Genre Genre { get; set; }
+
+		[SQLiteColumn("Name", TableAlias = "gen")]
+		public string GenreName { get; set; }
+
+		[SQLiteColumn("Composer", MaxLength = 200)]
+		public string Composer { get; set; }
+
+		[SQLiteColumn("Milliseconds")]
+		public long? Milliseconds { get; set; }
+
+		[SQLiteColumn("Bytes")]
+		public long? Bytes { get; set; }
+
+		[SQLiteColumn("UnitPrice")]
+		public decimal? UnitPrice { get; set; }
 	}
 }

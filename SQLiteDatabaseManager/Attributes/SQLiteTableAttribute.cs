@@ -16,7 +16,11 @@ namespace SQLiteDatabaseManager.Attributes
 		/// <summary>
 		/// Table alias for joined SELECT commands.
 		/// </summary>
-		public string Alias { get; set; }
+		public string Alias
+		{
+			get => _alias;
+			set => _alias = value?.ToUpper();
+		}
 
 		/// <summary>
 		/// Table name.
@@ -29,6 +33,8 @@ namespace SQLiteDatabaseManager.Attributes
 		public string Where { get; set; }
 
 		#endregion
+
+		private string _alias;
 
 		public SQLiteTableAttribute([NotNull]string table)
 		{
